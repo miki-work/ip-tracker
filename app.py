@@ -115,7 +115,14 @@ def admin_panel():
             th, td { padding: 12px; text-align: left; border-bottom: 1px solid #ddd; }
             th { background: #f1f2f6; font-weight: 600; }
             tr:hover { background: #f8f9fa; }
-            .flag { font-size: 18px; width: 24px; display: inline-block; text-align: center; }
+            .flag { 
+    		font-size: 18px; 
+    		width: 24px; 
+    		display: inline-block; 
+  		text-align: center; 
+    		vertical-align: middle; 
+    	    	line-height: 24px; 
+		}
             .time { color: #7f8c8d; font-size: 0.9em; }
             .link { color: #3498db; text-decoration: underline; }
         </style>
