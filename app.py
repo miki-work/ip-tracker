@@ -7,9 +7,10 @@ import requests
 
 app = Flask(__name__)
 
-# Целевая ссылка по умолчанию
+# Целевая ссылка по умолчанию (без пробелов!)
 DEFAULT_TARGET_URL = "https://2gis.ru"
 
+# Твой реальный URL к Neon (уже с sslmode=require)
 DATABASE_URL = "postgresql://neondb_owner:npg_Afov3TP1JjsI@ep-shy-pine-ahtyw75v-pooler.c-3.us-east-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require"
 
 def init_db():
@@ -32,11 +33,10 @@ def init_db():
 def get_geo_info(ip):
     """Получает страну и город по IP через ipapi.co"""
     try:
-        # Пропускаем локальные IP
         if ip in ('127.0.0.1', 'localhost', '::1'):
             return {"country": "Local", "country_code": "xx", "city": "Dev"}
 
-        # Запрос к API
+        # Запрос без пробелов!
         response = requests.get(f"https://ipapi.co/{ip}/json/", timeout=4)
         if response.status_code == 200:
             data = response.json()
@@ -47,7 +47,6 @@ def get_geo_info(ip):
     except Exception as e:
         print(f"[GEO] Error for {ip}: {e}")
 
-    # Fallback
     return {"country": "Unknown", "country_code": "xx", "city": "Unknown"}
 
 @app.route('/track')
@@ -56,10 +55,22 @@ def track():
     if not target_url.startswith(('http://', 'https://')):
         target_url = 'https://' + target_url
 
-    # Получаем реальный IP
-    ip = request.headers.get('X-Forwarded-For', request.remote_addr)
-    if ip:
-        ip = ip.split(',')[0].strip()
+    # Извлекаем IP: пропускаем приватные, берём первый публичный
+    xff = request.headers.get('X-Forwarded-For', '')
+    ips = [ip.strip() for ip in xff.split(',') if ip.strip()]
+    ip = request.remote_addr  # fallback
+
+    private_prefixes = (
+        '192.168.', '10.', '172.16.', '172.17.', '172.18.', '172.19.',
+        '172.20.', '172.21.', '172.22.', '172.23.', '172.24.', '172.25.',
+        '172.26.', '172.27.', '172.28.', '172.29.', '172.30.', '172.31.',
+        '127.', '::1', 'fe80:', 'fc00:'
+    )
+
+    for candidate in ips:
+        if not any(candidate.startswith(prefix) for prefix in private_prefixes):
+            ip = candidate
+            break
 
     geo = get_geo_info(ip)
 
@@ -126,7 +137,6 @@ def admin_panel():
     '''
 
     for row in rows:
-        # Генерация флага по коду страны
         cc = row['country_code']
         if len(cc) == 2 and cc != 'xx':
             flag = ''.join(chr(0x1F1E6 + ord(c) - ord('A')) for c in cc.upper())
