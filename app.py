@@ -11,7 +11,7 @@ app = Flask(__name__)
 DEFAULT_TARGET_URL = "https://2gis.ru"
 
 # Подключение к Neon PostgreSQL
-DATABASE_URL = "postgresql://neondb_owner:npg_Afov3TP1JjsI@ep-shy-pine-ahtyw75v-pooler.c-3.us-east-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require"
+DATABASE_URL = "postgresql://ip-tracker-db_owner:abc123...@ep-cool-forest-123456.us-east-2.aws.neon.tech/ip-tracker-db"
 
 def init_db():
     conn = psycopg2.connect(DATABASE_URL)
