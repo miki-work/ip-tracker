@@ -7,7 +7,7 @@ import requests
 
 app = Flask(__name__)
 
-# Целевая ссылка по умолчанию (если не указана)
+# Целевая ссылка по умолчанию
 DEFAULT_TARGET_URL = "https://2gis.ru"
 
 # Подключение к Neon PostgreSQL
@@ -21,9 +21,9 @@ def init_db():
                 id SERIAL PRIMARY KEY,
                 ip_address TEXT NOT NULL,
                 target_url TEXT NOT NULL,
-                country TEXT,
-                city TEXT,
-                timestamp TIMESTAMPTZ NOT NULL
+                country TEXT DEFAULT 'Unknown',
+                city TEXT DEFAULT 'Unknown',
+                country_code TEXT DEFAULT 'xx'
             )
         """)
         conn.commit()
@@ -33,17 +33,21 @@ def get_geo_info(ip):
     """Получает страну и город по IP через бесплатный API"""
     try:
         if ip in ('127.0.0.1', 'localhost'):
-            return {"country": "Local", "city": "Dev"}
+            return {"country": "Local", "country_code": "xx", "city": "Dev"}
+
+        # Попробуем получить данные
         response = requests.get(f"https://ipapi.co/{ip}/json/", timeout=3)
         if response.status_code == 200:
             data = response.json()
             return {
                 "country": data.get("country_name", "Unknown"),
-                "country_code": data.get("country_code", "XX").lower(),
+                "country_code": data.get("country_code", "xx").lower(),
                 "city": data.get("city", "Unknown")
             }
-    except:
-        pass
+    except Exception as e:
+        print(f"Geo error for {ip}: {e}")
+
+    # Fallback, если API не ответил
     return {"country": "Unknown", "country_code": "xx", "city": "Unknown"}
 
 @app.route('/track')
@@ -62,8 +66,8 @@ def track():
     conn = psycopg2.connect(DATABASE_URL)
     with conn.cursor() as cur:
         cur.execute(
-            "INSERT INTO clicks (ip_address, target_url, country, city, timestamp) VALUES (%s, %s, %s, %s, %s)",
-            (ip, target_url, geo["country"], geo["city"], datetime.utcnow())
+            "INSERT INTO clicks (ip_address, target_url, country, city, country_code) VALUES (%s, %s, %s, %s, %s)",
+            (ip, target_url, geo["country"], geo["city"], geo["country_code"])
         )
         conn.commit()
     conn.close()
@@ -100,8 +104,10 @@ def admin_panel():
             th, td { padding: 12px; text-align: left; border-bottom: 1px solid #ddd; }
             th { background: #f1f2f6; font-weight: 600; }
             tr:hover { background: #f8f9fa; }
-            .flag { display: inline-block; width: 24px; text-align: center; }
+            .flag { display: inline-block; width: 24px; text-align: center; font-size: 18px; }
             .time { color: #7f8c8d; font-size: 0.9em; }
+            .link { color: #3498db; text-decoration: underline; }
+            .link:hover { color: #2980b9; }
         </style>
     </head>
     <body>
@@ -114,22 +120,28 @@ def admin_panel():
                     <th>Страна</th>
                     <th>Город</th>
                     <th>Ссылка</th>
-                    <th>Время (UTC)</th>
+                    <th>Время</th>
                 </tr>
             </thead>
             <tbody>
     '''
 
     for row in rows:
-        flag = f'<span class="flag">🇦🇦</span>'.replace('🇦🇦', ''.join(chr(0x1F1E6 + ord(c) - ord('A')) for c in row['country_code'].upper()) if len(row['country_code']) == 2 else '🌐')
+        # Флаг: если код страны корректный — показываем флаг, иначе — пусто
+        flag = ''
+        if len(row['country_code']) == 2 and row['country_code'] != 'xx':
+            flag = ''.join(chr(0x1F1E6 + ord(c) - ord('A')) for c in row['country_code'].upper())
+        else:
+            flag = '🌐'
+
         html += f'''
             <tr>
                 <td><code>{row['ip_address']}</code></td>
-                <td>{flag}</td>
+                <td class="flag">{flag}</td>
                 <td>{row['country']}</td>
                 <td>{row['city']}</td>
-                <td><a href="{row['target_url']}" target="_blank">{row['target_url']}</a></td>
-                <td class="time">{row['timestamp'].strftime('%Y-%m-%d %H:%M:%S')}</td>
+                <td><a href="{row['target_url']}" class="link" target="_blank">{row['target_url']}</a></td>
+                <td class="time">{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</td>
             </tr>
         '''
 
