@@ -36,8 +36,10 @@ def get_geo_info(ip):
     """Получает страну, город и координаты по IP через ipapi.co"""
     try:
         if ip in ('127.0.0.1', 'localhost', '::1'):
+            print(f"[GEO] Local IP: {ip}")
             return {"country": "Local", "country_code": "xx", "city": "Dev", "latitude": 0.0, "longitude": 0.0}
 
+        # Запрос к API
         response = requests.get(f"https://ipapi.co/{ip}/json/", timeout=4)
         if response.status_code == 200:
             data = response.json()
@@ -46,6 +48,7 @@ def get_geo_info(ip):
             code = (data.get("country_code") or "xx").lower()
             lat = float(data.get("latitude", 0.0))
             lon = float(data.get("longitude", 0.0))
+            print(f"[GEO] Success for {ip}: {country}, {city}, {lat}, {lon}")
             return {
                 "country": country,
                 "country_code": code,
@@ -53,9 +56,13 @@ def get_geo_info(ip):
                 "latitude": lat,
                 "longitude": lon
             }
+        else:
+            print(f"[GEO] API returned {response.status_code} for {ip}")
     except Exception as e:
         print(f"[GEO] Error for {ip}: {e}")
 
+    # Fallback
+    print(f"[GEO] Fallback for {ip}")
     return {"country": "Unknown", "country_code": "xx", "city": "Unknown", "latitude": 0.0, "longitude": 0.0}
 
 @app.route('/track')
