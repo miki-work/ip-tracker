@@ -184,7 +184,7 @@ def map_page():
     for row in rows:
         if row['latitude'] != 0.0 and row['longitude'] != 0.0:
             markers_js += f"""
-            L.marker([{row['latitude']}, {row['longitude'}]).addTo(map)
+            L.marker([{row['latitude']}, {row['longitude']}]).addTo(map)
                 .bindPopup("<b>{row['ip_address']}</b><br>{row['country']} — {row['city']}<br>{row['timestamp'].strftime('%Y-%m-%d %H:%M:%S')}");
             """
 
