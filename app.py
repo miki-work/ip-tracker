@@ -7,10 +7,10 @@ import requests
 
 app = Flask(__name__)
 
-# Целевая ссылка по умолчанию (без пробелов!)
+# Целевая ссылка по умолчанию
 DEFAULT_TARGET_URL = "https://2gis.ru"
 
-# Твой реальный URL к Neon (уже с sslmode=require)
+# Подключение к Neon PostgreSQL
 DATABASE_URL = "postgresql://neondb_owner:npg_Afov3TP1JjsI@ep-shy-pine-ahtyw75v-pooler.c-3.us-east-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require"
 
 def init_db():
@@ -24,6 +24,8 @@ def init_db():
                 country TEXT DEFAULT 'Unknown',
                 city TEXT DEFAULT 'Unknown',
                 country_code TEXT DEFAULT 'xx',
+                latitude REAL,
+                longitude REAL,
                 timestamp TIMESTAMPTZ NOT NULL
             )
         """)
@@ -31,23 +33,30 @@ def init_db():
     conn.close()
 
 def get_geo_info(ip):
-    """Получает страну и город по IP через ipapi.co"""
+    """Получает страну, город и координаты по IP через ipapi.co"""
     try:
         if ip in ('127.0.0.1', 'localhost', '::1'):
-            return {"country": "Local", "country_code": "xx", "city": "Dev"}
+            return {"country": "Local", "country_code": "xx", "city": "Dev", "latitude": 0.0, "longitude": 0.0}
 
-        # Запрос без пробелов!
         response = requests.get(f"https://ipapi.co/{ip}/json/", timeout=4)
         if response.status_code == 200:
             data = response.json()
             country = data.get("country_name") or "Unknown"
             city = data.get("city") or "Unknown"
             code = (data.get("country_code") or "xx").lower()
-            return {"country": country, "country_code": code, "city": city}
+            lat = float(data.get("latitude", 0.0))
+            lon = float(data.get("longitude", 0.0))
+            return {
+                "country": country,
+                "country_code": code,
+                "city": city,
+                "latitude": lat,
+                "longitude": lon
+            }
     except Exception as e:
         print(f"[GEO] Error for {ip}: {e}")
 
-    return {"country": "Unknown", "country_code": "xx", "city": "Unknown"}
+    return {"country": "Unknown", "country_code": "xx", "city": "Unknown", "latitude": 0.0, "longitude": 0.0}
 
 @app.route('/track')
 def track():
@@ -55,10 +64,10 @@ def track():
     if not target_url.startswith(('http://', 'https://')):
         target_url = 'https://' + target_url
 
-    # Извлекаем IP: пропускаем приватные, берём первый публичный
+    # Получаем реальный IP
     xff = request.headers.get('X-Forwarded-For', '')
     ips = [ip.strip() for ip in xff.split(',') if ip.strip()]
-    ip = request.remote_addr  # fallback
+    ip = request.remote_addr
 
     private_prefixes = (
         '192.168.', '10.', '172.16.', '172.17.', '172.18.', '172.19.',
@@ -78,8 +87,8 @@ def track():
     conn = psycopg2.connect(DATABASE_URL)
     with conn.cursor() as cur:
         cur.execute(
-            "INSERT INTO clicks (ip_address, target_url, country, city, country_code, timestamp) VALUES (%s, %s, %s, %s, %s, %s)",
-            (ip, target_url, geo["country"], geo["city"], geo["country_code"], datetime.utcnow())
+            "INSERT INTO clicks (ip_address, target_url, country, city, country_code, latitude, longitude, timestamp) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)",
+            (ip, target_url, geo["country"], geo["city"], geo["country_code"], geo["latitude"], geo["longitude"], datetime.utcnow())
         )
         conn.commit()
     conn.close()
@@ -91,7 +100,7 @@ def home():
     return '''
     <h2>✅ IP Tracker</h2>
     <p>Пример: <a href="/track?url=https://google.com">/track?url=https://google.com</a></p>
-    <p>Админка: <a href="/admin">/admin</a></p>
+    <p>Админка: <a href="/admin">/admin</a> | Карта: <a href="/map">/map</a></p>
     '''
 
 @app.route('/admin')
@@ -115,14 +124,7 @@ def admin_panel():
             th, td { padding: 12px; text-align: left; border-bottom: 1px solid #ddd; }
             th { background: #f1f2f6; font-weight: 600; }
             tr:hover { background: #f8f9fa; }
-            .flag {
-		 font-size: 18px;
-	   	 width: 24px;
-	   	 display: flex;
-	   	 align-items: center;
-	   	 justify-content: center;
-	   	 height: 24px;
-		}
+            .flag { font-size: 18px; width: 24px; display: flex; align-items: center; justify-content: center; height: 24px; }
             .time { color: #7f8c8d; font-size: 0.9em; }
             .link { color: #3498db; text-decoration: underline; }
         </style>
@@ -164,6 +166,52 @@ def admin_panel():
     html += '''
             </tbody>
         </table>
+    </body>
+    </html>
+    '''
+    return html
+
+@app.route('/map')
+def map_page():
+    conn = psycopg2.connect(DATABASE_URL)
+    with conn.cursor(cursor_factory=RealDictCursor) as cur:
+        cur.execute("SELECT ip_address, country, city, latitude, longitude, timestamp FROM clicks WHERE latitude != 0 AND longitude != 0 ORDER BY id DESC LIMIT 100")
+        rows = cur.fetchall()
+    conn.close()
+
+    # Генерируем JavaScript для Leaflet
+    markers_js = ""
+    for row in rows:
+        if row['latitude'] != 0.0 and row['longitude'] != 0.0:
+            markers_js += f"""
+            L.marker([{row['latitude']}, {row['longitude'}]).addTo(map)
+                .bindPopup("<b>{row['ip_address']}</b><br>{row['country']} — {row['city']}<br>{row['timestamp'].strftime('%Y-%m-%d %H:%M:%S')}");
+            """
+
+    html = f'''
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <meta charset="utf-8">
+        <title>IP Tracker Map</title>
+        <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+        <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+        <style>
+            body {{ margin: 0; padding: 0; }}
+            #map {{ height: 100vh; width: 100%; }}
+        </style>
+    </head>
+    <body>
+        <div id="map"></div>
+        <script>
+            var map = L.map('map').setView([0, 0], 2);
+            L.tileLayer('https://{{s}}.tile.openstreetmap.org/{{z}}/{{x}}/{{y}}.png', {{
+                attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+            }}).addTo(map);
+
+            // Добавляем маркеры
+            {markers_js}
+        </script>
     </body>
     </html>
     '''
